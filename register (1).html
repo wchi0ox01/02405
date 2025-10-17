@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ลงทะเบียนนักเรียน</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- face-api.js -->
+    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+    <!-- Custom styles -->
+    <style>
+        body { font-family: 'Inter', 'Kanit', sans-serif; }
+        .loader { border-top-color: #3b82f6; animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .animate-fade-in { animation: fadeIn 0.5s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+        .video-container { position: relative; width: 100%; max-width: 400px; margin: 0 auto; }
+        .video-container video { width: 100%; height: auto; border-radius: 0.5rem; }
+        .video-container canvas { position: absolute; top: 0; left: 0; }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen flex flex-col items-center justify-center p-4">
+
+    <div class="bg-gray-800 p-6 rounded-lg shadow-lg w-full max-w-md">
+        <header class="flex items-center justify-between mb-6">
+            <div class="flex items-center space-x-3">
+                <i data-lucide="user-plus" class="text-blue-500 w-6 h-6"></i>
+                <h1 class="text-xl font-bold">ลงทะเบียนนักเรียนใหม่</h1>
+            </div>
+            <button onclick="toggleTheme()" type="button" class="text-gray-400 hover:bg-gray-700 rounded-lg text-sm p-2.5">
+                <i data-lucide="sun" id="theme-icon-sun" class="hidden w-5 h-5"></i>
+                <i data-lucide="moon" id="theme-icon-moon" class="w-5 h-5"></i>
+            </button>
+        </header>
+
+        <div id="alert" class="p-3 rounded-lg text-sm mb-4 hidden" role="alert"></div>
+
+        <form id="registrationForm" class="space-y-4">
+            <div>
+                <label for="studentId" class="block text-sm font-medium text-gray-300">รหัสประจำตัวนักศึกษา <span class="text-red-500">*</span></label>
+                <input type="text" id="studentId" required class="mt-1 block w-full rounded-md border-gray-600 bg-gray-700 text-gray-100 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2">
+            </div>
+            <div>
+                <label for="studentName" class="block text-sm font-medium text-gray-300">ชื่อ-สกุล <span class="text-red-500">*</span></label>
+                <input type="text" id="studentName" required class="mt-1 block w-full rounded-md border-gray-600 bg-gray-700 text-gray-100 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2">
+            </div>
+            <div>
+                <label for="studentClass" class="block text-sm font-medium text-gray-300">ห้อง <span class="text-red-500">*</span></label>
+                <select id="studentClass" required class="mt-1 block w-full rounded-md border-gray-600 bg-gray-700 text-gray-100 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2">
+                    <option value="">-- เลือกชั้นปี --</option>
+                    <option value="ปวช.1">ปวช.1</option>
+                    <option value="ปวช.2">ปวช.2</option>
+                    <option value="ปวช.3">ปวช.3</option>
+                    <option value="ปวส.1">ปวส.1</option>
+                    <option value="ปวส.2">ปวส.2</option>
+                </select>
+            </div>
+            <div class="text-center">
+                <label class="block text-sm font-medium text-gray-300 mb-2">สแกนใบหน้า <span class="text-red-500">*</span></label>
+                <button type="button" id="openCameraButton" class="w-full flex justify-center items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-base font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                    <i data-lucide="camera" class="w-5 h-5 mr-2"></i> เปิดกล้อง
+                </button>
+                <div id="cameraSection" class="mt-4 hidden">
+                    <div class="video-container">
+                        <video id="video" autoplay playsinline></video>
+                        <canvas id="overlay"></canvas>
+                    </div>
+                    <p id="loadingMessage" class="text-blue-400 mt-2 hidden">กำลังโหลดโมเดลใบหน้า...</p>
+                    <p id="faceDetectedMessage" class="text-green-400 mt-2 hidden">ตรวจพบใบหน้า!</p>
+                    <p id="faceNotFoundMessage" class="text-red-400 mt-2 hidden">ไม่พบใบหน้า กรุณาจัดตำแหน่งให้เหมาะสม</p>
+                </div>
+            </div>
+            <button type="submit" id="registerButton" class="w-full flex justify-center items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-base font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500" disabled>
+                <i data-lucide="save" class="w-5 h-5 mr-2"></i> บันทึกข้อมูลและใบหน้า
+            </button>
+        </form>
+    </div>
+
+    <script>
+        lucide.createIcons();
+
+        let gasWebAppUrl = localStorage.getItem('gasWebAppUrl') || '';
+        let videoStream = null;
+        let faceDescriptor = null;
+        let modelsLoaded = false;
+        let faceDetectionInterval = null;
+
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('overlay');
+        const context = canvas.getContext('2d');
+        const registerButton = document.getElementById('registerButton');
+        const openCameraButton = document.getElementById('openCameraButton');
+        const cameraSection = document.getElementById('cameraSection');
+        const loadingMessage = document.getElementById('loadingMessage');
+        const faceDetectedMessage = document.getElementById('faceDetectedMessage');
+        const faceNotFoundMessage = document.getElementById('faceNotFoundMessage');
+
+        window.addEventListener('DOMContentLoaded', async () => {
+            if (!gasWebAppUrl) {
+                showAlert('alert', 'กรุณาตั้งค่า Google Apps Script URL ในหน้า Admin ก่อนใช้งาน', 'error');
+                registerButton.disabled = true;
+                openCameraButton.disabled = true;
+                return;
+            }
+            
+            // Check if already registered
+            const registeredStudentId = localStorage.getItem('registeredStudentId');
+            if (registeredStudentId) {
+                showAlert('alert', 'คุณได้ลงทะเบียนแล้ว กำลังนำไปยังหน้าเช็คชื่อ...', 'info');
+                setTimeout(() => {
+                    window.location.href = 'checkin.html';
+                }, 2000);
+                return;
+            }
+
+            loadingMessage.classList.remove('hidden');
+            await loadFaceApiModels();
+            loadingMessage.classList.add('hidden');
+            modelsLoaded = true;
+        });
+
+        async function loadFaceApiModels() {
+            await faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/npm/face-api.js-models@0.0.3/model');
+            await faceapi.nets.faceLandmark68Net.loadFromUri('https://cdn.jsdelivr.net/npm/face-api.js-models@0.0.3/model');
+            await faceapi.nets.faceRecognitionNet.loadFromUri('https://cdn.jsdelivr.net/npm/face-api.js-models@0.0.3/model');
+            await faceapi.nets.faceExpressionNet.loadFromUri('https://cdn.jsdelivr.net/npm/face-api.js-models@0.0.3/model');
+        }
+
+        openCameraButton.addEventListener('click', async () => {
+            if (!modelsLoaded) {
+                showAlert('alert', 'กำลังโหลดโมเดลใบหน้า กรุณารอสักครู่', 'info');
+                return;
+            }
+            try {
+                videoStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+                video.srcObject = videoStream;
+                cameraSection.classList.remove('hidden');
+                openCameraButton.classList.add('hidden');
+
+                video.addEventListener('play', () => {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    faceDetectionInterval = setInterval(detectFace, 100);
+                });
+            } catch (error) {
+                showAlert('alert', 'ไม่สามารถเข้าถึงกล้องได้: ' + error.message, 'error');
+                console.error(error);
+            }
+        });
+
+        async function detectFace() {
+            const detections = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
+            
+            if (detections) {
+                faceDetectedMessage.classList.remove('hidden');
+                faceNotFoundMessage.classList.add('hidden');
+                faceDescriptor = Array.from(detections.descriptor);
+                registerButton.disabled = false;
+
+                const resizedDetections = faceapi.resizeResults(detections, { width: canvas.width, height: canvas.height });
+                context.clearRect(0, 0, canvas.width, canvas.height);
+                faceapi.draw.drawDetections(canvas, resizedDetections);
+                faceapi.draw.drawFaceLandmarks(canvas, resizedDetections);
+            } else {
+                faceDetectedMessage.classList.add('hidden');
+                faceNotFoundMessage.classList.remove('hidden');
+                faceDescriptor = null;
+                registerButton.disabled = true;
+                context.clearRect(0, 0, canvas.width, canvas.height);
+            }
+        }
+
+        document.getElementById('registrationForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if (!faceDescriptor) {
+                showAlert('alert', 'กรุณาสแกนใบหน้าก่อนลงทะเบียน', 'error');
+                return;
+            }
+
+            const studentId = document.getElementById('studentId').value;
+            const studentName = document.getElementById('studentName').value;
+            const studentClass = document.getElementById('studentClass').value;
+
+            showAlert('alert', 'กำลังบันทึกข้อมูล...', 'info');
+            registerButton.disabled = true;
+
+            try {
+                const response = await apiCall({
+                    action: 'registerStudent',
+                    data: {
+                        id: studentId,
+                        name: studentName,
+                        class: studentClass,
+                        faceDescriptor: JSON.stringify(faceDescriptor)
+                    }
+                });
+
+                if (response.success) {
+                    showAlert('alert', 'ลงทะเบียนสำเร็จ! กำลังนำไปยังหน้าเช็คชื่อ...', 'success');
+                    localStorage.setItem('registeredStudentId', studentId);
+                    localStorage.setItem('registeredStudentName', studentName);
+                    localStorage.setItem('registeredStudentClass', studentClass);
+                    setTimeout(() => {
+                        window.location.href = 'checkin.html';
+                    }, 2000);
+                } else {
+                    showAlert('alert', 'ลงทะเบียนไม่สำเร็จ: ' + response.error, 'error');
+                    registerButton.disabled = false;
+                }
+            } catch (error) {
+                showAlert('alert', 'เกิดข้อผิดพลาดในการเชื่อมต่อ: ' + error.message, 'error');
+                registerButton.disabled = false;
+            }
+        });
+
+        function stopCamera() {
+            if (videoStream) {
+                videoStream.getTracks().forEach(track => track.stop());
+                videoStream = null;
+            }
+            if (faceDetectionInterval) {
+                clearInterval(faceDetectionInterval);
+                faceDetectionInterval = null;
+            }
+            cameraSection.classList.add('hidden');
+            openCameraButton.classList.remove('hidden');
+            context.clearRect(0, 0, canvas.width, canvas.height);
+            faceDetectedMessage.classList.add('hidden');
+            faceNotFoundMessage.classList.add('hidden');
+        }
+
+        function showAlert(elementId, message, type) {
+            const alertDiv = document.getElementById(elementId);
+            alertDiv.textContent = message;
+            alertDiv.classList.remove('hidden', 'bg-green-600', 'bg-red-600', 'bg-blue-600');
+            if (type === 'success') {
+                alertDiv.classList.add('bg-green-600');
+            } else if (type === 'error') {
+                alertDiv.classList.add('bg-red-600');
+            } else if (type === 'info') {
+                alertDiv.classList.add('bg-blue-600');
+            }
+            alertDiv.classList.remove('hidden');
+            setTimeout(() => { alertDiv.classList.add('hidden'); }, 5000);
+        }
+
+        async function apiCall(payload) {
+            if (!gasWebAppUrl) {
+                throw new Error('GAS URL not configured');
+            }
+            try {
+                const response = await fetch(gasWebAppUrl, {
+                    method: 'POST',
+                    mode: 'cors',
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                    body: JSON.stringify(payload)
+                });
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return await response.json();
+            } catch (error) {
+                console.error('API Call Error:', error);
+                throw error;
+            }
+        }
+
+        // Dark mode toggle - simplified for register page
+        function toggleTheme(initialLoad = false) {
+            const html = document.documentElement;
+            const themeIconSun = document.getElementById('theme-icon-sun');
+            const themeIconMoon = document.getElementById('theme-icon-moon');
+            let isDarkMode = html.classList.contains('dark');
+
+            if (initialLoad) {
+                isDarkMode = localStorage.getItem('theme') === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches);
+                if (isDarkMode) { html.classList.add('dark'); } else { html.classList.remove('dark'); }
+            } else {
+                if (isDarkMode) { html.classList.remove('dark'); localStorage.setItem('theme', 'light'); }
+                else { html.classList.add('dark'); localStorage.setItem('theme', 'dark'); }
+            }
+            updateThemeIcons();
+        }
+
+        function updateThemeIcons() {
+            const html = document.documentElement;
+            const themeIconSun = document.getElementById('theme-icon-sun');
+            const themeIconMoon = document.getElementById('theme-icon-moon');
+            if (html.classList.contains('dark')) {
+                themeIconMoon.classList.add('hidden');
+                themeIconSun.classList.remove('hidden');
+            } else {
+                themeIconSun.classList.add('hidden');
+                themeIconMoon.classList.remove('hidden');
+            }
+            lucide.createIcons();
+        }
+        toggleTheme(true);
+    </script>
+</body>
+</html>
+
